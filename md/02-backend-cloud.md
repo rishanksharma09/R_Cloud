@@ -83,6 +83,7 @@ Responsibilities
 - Clone Repository
 - Read ragent.yaml
 - Validate AI Project
+- Determine deployment mode (`monolith` or `microservices`)
 - Trigger Runtime Deployment
 - Store Deployment History
 - Version Management
@@ -98,7 +99,11 @@ Clone Repository
 
 ↓
 
-Validate Project
+Read ragent.yaml
+
+↓
+
+Validate Project & detect deployment mode
 
 ↓
 
@@ -108,6 +113,24 @@ Create Deployment Request
 
 Runtime Service
 ```
+
+### Deployment Mode Handling
+
+During AI Project Validation, the Deployment Service should parse `ragent.yaml` and use `application.mode` to drive orchestration.
+
+- `mode: monolith` — send a single build/deploy instruction to the Runtime Service.
+- `mode: microservices` — provision separate Railway service instances for each agent declared under `agents`, using each `entrypoint` as the specific container startup command.
+
+### Frontend Preview UX
+
+The frontend should preview the detected deployment mode before the user confirms deployment:
+
+- Validate `ragent.yaml` in the background when the GitHub repo is submitted.
+- Display the detected mode and the number of services/containers.
+- Ask the user to confirm before provisioning.
+
+This prevents mismatched mode selection and ensures the platform deployment matches the repository structure.
+
 
 ---
 

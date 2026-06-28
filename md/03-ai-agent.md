@@ -231,6 +231,7 @@ customer-support/
 ```yaml
 application:
   name: customer-support
+  mode: microservices
 
 agents:
 
@@ -261,6 +262,74 @@ routes:
 
   metadata: /metadata
 ```
+
+---
+
+# Deployment Mode Detection via ragent.yaml
+
+Your Deployment Service should parse `ragent.yaml` during AI Project Validation and use `application.mode` to determine deployment structure.
+
+Supported values:
+
+- `monolith` — deploy a single Railway service instance for the whole application.
+- `microservices` — provision a separate Railway service instance for each agent under `agents` and use each agent's `entrypoint` as that container's startup command.
+
+## Monolith Config Example
+
+```yaml
+application:
+  name: support-system
+  mode: monolith
+
+routes:
+  execute: /execute
+  stream: /stream
+  health: /health
+```
+
+## Microservices Config Example
+
+```yaml
+application:
+  name: support-system
+  mode: microservices
+
+agents:
+  - id: planner
+    entrypoint: planner.py
+  - id: researcher
+    entrypoint: researcher.py
+  - id: reviewer
+    entrypoint: reviewer.py
+
+routes:
+  execute: /execute
+  stream: /stream
+  health: /health
+```
+
+## How the Runtime Service Handles the Flow
+
+When the user attaches their GitHub repo and clicks Deploy:
+
+1. Clone the repo and parse `ragent.yaml`.
+2. If `mode: monolith`, send a single build/deploy instruction to the Runtime Service.
+3. If `mode: microservices`, loop over each entry in `agents` and provision a distinct Railway service instance with the agent's `entrypoint` as the container startup command.
+
+---
+
+# Frontend Preview UX
+
+Use the frontend to preview the detected deployment mode instead of only showing a blind button.
+
+1. User pastes the GitHub repo link.
+2. Backend analyzes `ragent.yaml` in the background.
+3. Frontend displays a confirmation card such as:
+
+> 📦 **Deployment Mode Detected: Microservices**
+> *Your configuration specifies deploying 3 separate agent services (Planner, Researcher, Reviewer) on Railway. Estimated resource usage: 3 containers.*
+
+This makes deployment decisions visible and aligned with the actual repo structure.
 
 ---
 

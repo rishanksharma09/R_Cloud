@@ -34,6 +34,7 @@ Example configuration:
 ```yaml
 application:
   name: customer-support
+  mode: microservices
 
 agents:
   - id: planner
@@ -57,6 +58,28 @@ routes:
   health: /health
   metadata: /metadata
 ```
+
+## Deployment Mode Detection
+
+The platform should parse `ragent.yaml` during AI Project Validation and use `application.mode` to decide deployment structure:
+
+- `mode: monolith` — deploy a single Railway service for the whole application.
+- `mode: microservices` — deploy one Railway service per agent and use each agent's `entrypoint` as the startup command.
+
+This ensures the A2A orchestration reflects the actual repository structure.
+
+## Frontend Preview UX
+
+Instead of a blind deployment toggle, the frontend should show the detected mode before deployment.
+
+1. User pastes the GitHub repo link.
+2. Backend analyzes `ragent.yaml` in the background.
+3. Frontend displays a confirmation card like:
+
+> 📦 **Deployment Mode Detected: Microservices**
+> *Your configuration specifies deploying 3 separate agent services (Planner, Researcher, Reviewer) on Railway. Estimated resource usage: 3 containers.*
+
+Then the user confirms and deploys.
 
 Benefits:
 
