@@ -49,6 +49,54 @@ The only interface between both teams:
 
 ---
 
+# Shared Proto — Root Level Contract
+
+The `runtime.proto` file is the gRPC contract between the Deployment Service (Go) and the Runtime Service (TypeScript).
+
+It belongs to **neither team**. It lives at the project root so both teams generate code from the same source of truth.
+
+```
+R_Cloud/
+│
+├── proto/
+│   └── runtime.proto              ← single source of truth for gRPC contract
+│                                    agreed upon by both teams before implementation
+│                                    changing this file requires coordinated update on both sides
+│
+├── Backend/                       ← Platform Team (Go)
+│   └── generated/
+│       └── runtime/
+│           ├── runtime.pb.go      ← auto-generated: protobuf message structs
+│           └── runtime_grpc.pb.go ← auto-generated: gRPC client + server interfaces
+│
+└── Ai-Agent/
+    └── runtime-service/           ← Platform Team's gRPC server (TypeScript)
+        └── src/
+            └── generated/
+                ├── runtime_pb.ts      ← auto-generated: protobuf message types
+                └── runtime_grpc_pb.ts ← auto-generated: gRPC server stub
+```
+
+## How to Generate
+
+Backend (Go):
+```bash
+protoc --go_out=./Backend/generated --go-grpc_out=./Backend/generated ./proto/runtime.proto
+```
+
+Ai-Agent runtime-service (TypeScript):
+```bash
+protoc --ts_out=./Ai-Agent/runtime-service/src/generated ./proto/runtime.proto
+```
+
+## Rule
+
+Neither team edits files inside `generated/`.
+They only edit `proto/runtime.proto` and regenerate.
+Generated folders are added to `.gitignore` or committed — team decides.
+
+---
+
 # Platform Team — Complete Folder Structure (Go)
 
 ```
@@ -66,8 +114,10 @@ Backend/
 │       ├── auth.sql                   ← users, tokens, api_keys tables
 │       └── runtime.sql                ← runtimes, deployments, agents tables
 │
-├── proto/
-│   └── runtime.proto                  ← gRPC contract (single source of truth)
+├── generated/                         ← auto-generated from R_Cloud/proto/runtime.proto
+│   └── runtime/
+│       ├── runtime.pb.go              ← protobuf message structs (DO NOT EDIT)
+│       └── runtime_grpc.pb.go         ← gRPC client + server interfaces (DO NOT EDIT)
 │
 ├── grpc/
 │   ├── server.go                      ← gRPC server bootstrap (Runtime Service)
@@ -163,48 +213,92 @@ Backend/
 
 > This is the engine that gets deployed TO Railway as a container.
 > It reads ragent.yaml and executes the AI workflow.
+> Note: The runtime-service inside Ai-Agent is the Platform Team's gRPC server.
+> The runtime-engine is the AI Team's actual execution engine deployed to Railway.
 
 ```
 Ai-Agent/
-└── runtime-engine/
+│
+├── runtime-service/               ← Platform Team's gRPC server (TypeScript)
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   └── src/
+│       ├── generated/             ← auto-generated from R_Cloud/proto/runtime.proto (DO NOT EDIT)
+│       │   ├── runtime_pb.ts      ← protobuf message types
+│       │   └── runtime_grpc_pb.ts ← gRPC server stub
+│       │
+│       ├── config/                ← env var validation
+│       ├── db/                    ← PostgreSQL + Drizzle ORM
+│       ├── errors/                ← custom error classes
+│       ├── events/                ← NATS publish/subscribe
+│       ├── grpc/
+│       │   ├── server.ts          ← gRPC server bootstrap
+│       │   ├── handlers/
+│       │   │   ├── create-runtime.handler.ts
+│       │   │   ├── restart-runtime.handler.ts
+│       │   │   ├── stop-runtime.handler.ts
+│       │   │   ├── delete-runtime.handler.ts
+│       │   │   └── get-runtime-status.handler.ts
+│       │   └── interceptors/
+│       │       ├── auth.interceptor.ts
+│       │       ├── logger.interceptor.ts
+│       │       └── error.interceptor.ts
+│       ├── health/
+│       │   ├── health-checker.ts  ← ping GET /health on runtime URL
+│       │   ├── health-scheduler.ts← every 30s check all active runtimes
+│       │   ├── restart-manager.ts ← auto-restart unhealthy runtimes
+│       │   └── worker-pool.ts
+│       ├── providers/
+│       │   └── railway/
+│       │       └── railway.client.ts ← Railway API client
+│       ├── provisioner/
+│       │   ├── monolith.provisioner.ts
+│       │   └── microservices.provisioner.ts
+│       ├── reconciler/
+│       │   └── reconciler.ts      ← startup crash recovery
+│       ├── registry/
+│       │   ├── runtime-registry.ts
+│       │   └── runtime-registry.types.ts
+│       ├── telemetry/
+│       │   ├── tracer.ts          ← OpenTelemetry setup
+│       │   └── metrics.ts
+│       ├── validation/            ← Zod input schemas
+│       ├── utils/                 ← retry, timeout, sleep
+│       └── index.ts               ← bootstrap entry point
+│
+└── runtime-engine/                ← AI Team's execution engine (Python or TypeScript)
+    │                                 This is what gets deployed TO Railway by the Runtime Service
+    ├── ragent.yaml                ← example config for local testing
+    ├── requirements.txt           ← (Python) or package.json (TypeScript)
+    ├── Dockerfile                 ← container definition for Railway
+    ├── .env.example               ← OPENAI_API_KEY, ANTHROPIC_KEY, etc.
     │
-    ├── ragent.yaml                   ← example config for local testing
-    ├── requirements.txt              ← (Python) or package.json (TypeScript)
-    ├── Dockerfile                    ← container definition for Railway
-    ├── .env.example                  ← OPENAI_API_KEY, ANTHROPIC_KEY, etc.
-    │
-    ├── main.py                       ← entry point: boot HTTP server on port 3000
-    │   (or index.ts)
+    ├── main.py                    ← entry point: boot HTTP server on port 3000
     │
     ├── core/
-    │   ├── loader.py                 ← read + parse ragent.yaml at startup
-    │   ├── router.py                 ← route POST /execute to correct workflow
-    │   └── session.py                ← session ID + context management per request
+    │   ├── loader.py              ← read + parse ragent.yaml at startup
+    │   ├── router.py              ← route POST /execute to correct workflow
+    │   └── session.py             ← session ID + context management per request
     │
     ├── workflow/
-    │   ├── engine.py                 ← main orchestrator: runs agents in order from yaml
-    │   ├── sequential.py             ← run agents one after another
-    │   ├── parallel.py               ← run agents simultaneously
-    │   └── conditional.py            ← conditional routing between agents
+    │   ├── engine.py              ← main orchestrator: runs agents in order from yaml
+    │   ├── sequential.py          ← run agents one after another
+    │   ├── parallel.py            ← run agents simultaneously
+    │   └── conditional.py         ← conditional routing between agents
     │
     ├── a2a/
-    │   ├── messenger.py              ← agent-to-agent message passing
-    │   ├── coordinator.py            ← manage A2A state + flow control
-    │   └── state.py                  ← shared state between agents in a workflow
-    │
-    ├── agents/
-    │   ├── base_agent.py             ← base class all agents inherit
-    │   ├── planner.py                ← Planner Agent (example)
-    │   ├── researcher.py             ← Research Agent (example)
-    │   ├── reviewer.py               ← Reviewer Agent (example)
-    │   └── executor.py               ← Executor Agent (example)
+    │   ├── messenger.py           ← agent-to-agent message passing
+    │   ├── coordinator.py         ← manage A2A state + flow
+    │   └── state.py               ← shared state between agents in a workflow
     │
     └── api/
-        ├── server.py                 ← FastAPI/Express HTTP server on port 3000
-        ├── execute.py                ← POST /execute → trigger workflow → return response
-        ├── stream.py                 ← POST /stream → SSE streaming response
-        ├── health.py                 ← GET /health → return { status: "healthy" }
-        └── metadata.py              ← GET /metadata → return agent info
+        ├── server.py              ← FastAPI HTTP server on port 3000
+        ├── execute.py             ← POST /execute → trigger workflow → return response
+        ├── stream.py              ← POST /stream → SSE streaming response
+        ├── health.py              ← GET /health → return { status: "healthy" }
+        └── metadata.py            ← GET /metadata → return agent info
 ```
 
 ---
@@ -242,7 +336,7 @@ Deployment Service (gRPC CLIENT)
 Runtime Service (gRPC SERVER)
 ```
 
-## proto/runtime.proto — Methods
+## R_Cloud/proto/runtime.proto — Methods
 
 ```protobuf
 service RuntimeService {
